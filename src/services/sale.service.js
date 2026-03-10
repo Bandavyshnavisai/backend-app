@@ -4,7 +4,7 @@ const { db } = require('../config/firebase');
  * Admin approves an item for sale
  * Conditions:
  * - Item must exist
- * - Item must be marked saleEligible
+ * - Item must be marked saleEligible OR be older than 30 days and still pending
  * - Price must be a valid positive number
  */
 const approveForSale = async (itemId, price) => {
@@ -17,9 +17,26 @@ const approveForSale = async (itemId, price) => {
 
   const item = doc.data();
 
-  // 🔒 Ensure item is eligible for sale
-  if (!item.saleEligible) {
-    throw new Error("Item is not eligible for sale");
+  // 🔒 Ensure item is eligible for sale OR is older than 30 days and still pending
+  let isEligible = item.saleEligible === true;
+
+  if (!isEligible && item.status === 'pending' && item.createdAt) {
+    let createdAtMs;
+    // Handle Firestore Timestamp or ISO string
+    if (item.createdAt._seconds) {
+      createdAtMs = item.createdAt._seconds * 1000;
+    } else {
+      createdAtMs = new Date(item.createdAt).getTime();
+    }
+
+    const daysOld = (Date.now() - createdAtMs) / (1000 * 60 * 60 * 24);
+    if (daysOld >= 30) {
+      isEligible = true;
+    }
+  }
+
+  if (!isEligible) {
+    throw new Error("Item is not eligible for sale (must be saleEligible or older than 30 days and pending)");
   }
 
   // 🔒 Validate price
@@ -29,6 +46,7 @@ const approveForSale = async (itemId, price) => {
 
   await ref.update({
     price,
+    saleEligible: true, // ensure it's marked eligible if it was approved by age
     saleApproved: true,
     saleStatus: "listed",
     approvedAt: Date.now(),

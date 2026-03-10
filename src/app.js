@@ -55,7 +55,7 @@ app.use((req, res) => {
 // ===== Global Error Handler =====
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  error(res, 'Internal Server Error', 500, err.message);
+  res.status(500).json({ success: false, message: 'Internal Server Error', stack: err.stack, error: err.message });
 });
 
 module.exports = app;

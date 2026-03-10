@@ -54,7 +54,23 @@ class ClaimsService {
             .orderBy('createdAt', 'desc')
             .get();
 
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const claims = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Fetch associated items for each claim
+        for (const claim of claims) {
+            if (claim.itemId) {
+                try {
+                    const itemDoc = await db.collection('items').doc(claim.itemId).get();
+                    if (itemDoc.exists) {
+                        claim.item = { id: itemDoc.id, ...itemDoc.data() };
+                    }
+                } catch (e) {
+                    console.error("Error fetching item for claim:", e);
+                }
+            }
+        }
+
+        return claims;
     }
 
     /**
@@ -64,10 +80,69 @@ class ClaimsService {
     async getPendingClaims() {
         const snapshot = await db.collection('claims')
             .where('status', '==', 'pending')
-            .orderBy('createdAt', 'asc') // Oldest first for admin queue
             .get();
 
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const claims = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Sort in memory (oldest first for admin queue)
+        claims.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return timeA - timeB;
+        });
+
+        // Fetch associated items for each claim
+        for (const claim of claims) {
+            if (claim.itemId) {
+                try {
+                    const itemDoc = await db.collection('items').doc(claim.itemId).get();
+                    if (itemDoc.exists) {
+                        claim.item = { id: itemDoc.id, ...itemDoc.data() };
+                    }
+                } catch (e) {
+                    console.error("Error fetching item for claim:", e);
+                }
+            }
+        }
+
+        return claims;
+    }
+
+    /**
+     * Get claims by status (Admin)
+     * @param {string[]} statuses - array of statuses
+     * @returns {Promise<Array>}
+     */
+    async getClaimsByStatus(statuses) {
+        // Fetch without orderBy to avoid needing a Firestore composite index
+        const snapshot = await db.collection('claims')
+            .where('status', 'in', statuses)
+            .get();
+
+        const claims = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Sort in memory (newest first)
+        claims.sort((a, b) => {
+            const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+            const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+            return timeB - timeA;
+        });
+
+        // Fetch associated items for each claim
+        for (const claim of claims) {
+            if (claim.itemId) {
+                try {
+                    const itemDoc = await db.collection('items').doc(claim.itemId).get();
+                    if (itemDoc.exists) {
+                        claim.item = { id: itemDoc.id, ...itemDoc.data() };
+                    }
+                } catch (e) {
+                    console.error("Error fetching item for claim:", e);
+                }
+            }
+        }
+
+        return claims;
     }
 
     /**

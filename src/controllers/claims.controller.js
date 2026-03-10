@@ -52,6 +52,26 @@ const getPendingClaims = async (req, res) => {
     }
 };
 
+const getClaimsByStatus = async (req, res) => {
+    try {
+        if (!isAdmin(req.user)) {
+            return error(res, 'Forbidden: Admin access only', 403);
+        }
+
+        const statusesParam = req.query.statuses || req.params.status;
+        let statuses = ['pending'];
+
+        if (statusesParam) {
+            statuses = statusesParam.split(',').map(s => s.trim());
+        }
+
+        const claims = await claimsService.getClaimsByStatus(statuses);
+        return success(res, claims);
+    } catch (err) {
+        return error(res, 'Failed to fetch claims', 500, err.message);
+    }
+};
+
 const approveClaim = async (req, res) => {
     try {
         if (!isAdmin(req.user)) {
@@ -178,6 +198,7 @@ module.exports = {
     createClaim,
     getMyClaims,
     getPendingClaims,
+    getClaimsByStatus,
     approveClaim,
     rejectClaim,
     addNote,

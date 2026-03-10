@@ -1,4 +1,5 @@
 const { db, admin } = require('../config/firebase');
+const groqVisionService = require('./groqVisionService');
 
 class CommunicationService {
     /**
@@ -25,12 +26,54 @@ class CommunicationService {
 
         const docRef = await db.collection('messages').add(message);
 
+        // If message is from a normal user, trigger the AI bot reply
+        if (senderUid !== 'bot' && !isProofRequest) {
+            // Check if sender is an admin from their custom claims/role if needed, 
+            // but for a simple chatbot we can trigger it asynchronously.
+            this.generateBotReply(claimId, content).catch(console.error);
+        }
+
         return {
             id: docRef.id,
             ...message,
             senderId: senderUid, // Add senderId for frontend interface compatibility
             timestamp: new Date().toISOString()
         };
+    }
+
+    async generateBotReply(claimId, userAction) {
+        try {
+            const systemPrompt = "You are a helpful customer support AI for a campus lost and found system. A user has opened a claim for a lost item and is messaging you. Keep your answer brief, friendly, and helpful (under 2 sentences).";
+
+            // Get response from Llama through Groq
+            // Since groqVisionService.analyzeText returns JSON if instructed, we just want raw text here,
+            // but the service tries to parse JSON. Let's pass a prompt asking for JSON format.
+            const userPrompt = `Message from user: "${userAction}". Reply with a valid JSON object strictly in this format: {"reply": "your message here"}`;
+
+            const responseData = await groqVisionService.analyzeText(systemPrompt, userPrompt);
+            const botMessageText = responseData.reply || "I'm sorry, I'm having trouble understanding right now.";
+
+            // Save bot message to DB
+            const message = {
+                claimId,
+                senderUid: 'bot',
+                content: botMessageText,
+                isProofRequest: false,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            await db.collection('messages').add(message);
+        } catch (error) {
+            console.error("Bot reply error:", error);
+            // Fallback message
+            await db.collection('messages').add({
+                claimId,
+                senderUid: 'bot',
+                content: "I'll make sure an admin reviews your message shortly.",
+                isProofRequest: false,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
     }
 
     /**

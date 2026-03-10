@@ -16,6 +16,7 @@ router.get('/claims/:id/chat', claimsController.getMessages);
 
 // Admin Routes
 router.get('/admin/claims/pending', claimsController.getPendingClaims);
+router.get('/admin/claims/status/:status', claimsController.getClaimsByStatus);
 router.post('/admin/claims/:id/approve', claimsController.approveClaim);
 router.post('/admin/claims/:id/reject', claimsController.rejectClaim);
 router.post('/admin/claims/:id/reopen', claimsController.reopenClaim);

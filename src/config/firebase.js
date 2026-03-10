@@ -26,28 +26,41 @@ if (!admin.apps.length) {
         privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
       }),
     });
-  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    // Strategy 2: Service Account File
-    const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    const absolutePath = path.isAbsolute(serviceAccountPath)
-      ? serviceAccountPath
-      : path.resolve(process.cwd(), serviceAccountPath);
-    console.log(`Initializing Firebase with credentials from: ${absolutePath}`);
+  } else {
+    // Strategy 2: Local Service Account File (Prioritized to avoid system-wide env var conflicts)
     try {
-      const serviceAccount = require(absolutePath);
+      const localServiceAccountPath = path.resolve(process.cwd(), 'serviceAccountKey.json');
+      const serviceAccount = require(localServiceAccountPath);
+      console.log(`Initializing Firebase with local credentials from: ${localServiceAccountPath}`);
       admin.initializeApp({
         ...commonConfig,
         credential: admin.credential.cert(serviceAccount)
       });
-    } catch (error) {
-      console.error(`Failed to load service account: ${error.message}`);
-      throw error;
+    } catch (localErr) {
+      // Fallback to System env if local file doesn't exist
+      if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+        const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+        const absolutePath = path.isAbsolute(serviceAccountPath)
+          ? serviceAccountPath
+          : path.resolve(process.cwd(), serviceAccountPath);
+        console.log(`Initializing Firebase with fallback credentials from: ${absolutePath}`);
+        try {
+          const serviceAccount = require(absolutePath);
+          admin.initializeApp({
+            ...commonConfig,
+            credential: admin.credential.cert(serviceAccount)
+          });
+        } catch (error) {
+          console.error(`Failed to load service account: ${error.message}`);
+          throw error;
+        }
+      } else {
+        console.log('Initializing Firebase with default application credentials...');
+        admin.initializeApp(commonConfig);
+      }
     }
-  } else {
-    // Strategy 3: Default (ADC)
-    console.log('Initializing Firebase with default application credentials...');
-    admin.initializeApp(commonConfig);
   }
+
   console.log("✅ Firebase Admin Initialized");
 }
 

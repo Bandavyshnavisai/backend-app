@@ -18,6 +18,44 @@ const sendError = (res, error) => {
 router.use(verifyFirebaseToken);
 router.use(requireAdminRole);
 
+// GET /api/cctv/logs — fetch all CCTV log entries (optionally filtered by ?zone=)
+router.get('/logs', async (req, res) => {
+    try {
+        const { zone, limit: limitParam } = req.query;
+        const limit = Math.min(parseInt(limitParam) || 100, 500);
+
+        // Fetch logs
+        const query = db.collection('cctvLogs').orderBy('timestamp', 'desc').limit(limit);
+        const snapshot = await query.get();
+
+        const logs = [];
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            logs.push({
+                id: doc.id,
+                zone: data.zone || null,
+                objects: data.objects || [],
+                timestamp: data.timestamp && data.timestamp.toDate
+                    ? data.timestamp.toDate().toISOString()
+                    : data.timestamp,
+            });
+        });
+
+        // Filter by zone case-insensitively if provided
+        let filteredLogs = logs;
+        if (zone) {
+            const targetZone = zone.toLowerCase().trim();
+            filteredLogs = logs.filter(
+                log => log.zone && log.zone.toLowerCase().trim() === targetZone
+            );
+        }
+
+        return res.json({ success: true, data: filteredLogs });
+    } catch (error) {
+        sendError(res, error);
+    }
+});
+
 // POST /api/cctv/seed-logs — run once to populate cctvLogs collection
 router.post('/seed-logs', async (req, res) => {
     try {

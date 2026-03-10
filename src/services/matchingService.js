@@ -175,6 +175,70 @@ class MatchingService {
         return top10;
 
     }
+
+    /**
+     * Compare a custom base64 image against an existing item in the DB.
+     * Extracts features from the custom image and compares with the item's extracted features.
+     * 
+     * @param {string} itemId - The ID of the item to compare against 
+     * @param {string} imageBase64 - The base64 data URI of the custom image uploaded
+     * @returns {Object} result object with score, matching attributes, etc.
+     */
+    async compareCustomImage(itemId, imageBase64) {
+        // 1. Fetch item and make sure it has features
+        const sourceDoc = await db.collection('items').doc(itemId).get();
+        if (!sourceDoc.exists) throw new Error(`Item not found in items collection`);
+        const sourceItem = sourceDoc.data();
+        if (!sourceItem.features) throw new Error('Item features not extracted yet — call extractFeatures first');
+
+        // 2. Extract features from the uploaded image
+        const extractionPrompt =
+            'You are a visual feature extractor. Analyze this item image and return ONLY a JSON object with these fields: ' +
+            '{ "category": string, "colors": string[], "shape": string, "size_estimate": string, ' +
+            '"distinctive_features": string[], "texture": string }. ' +
+            'No explanation, no markdown, raw JSON only.';
+
+        console.log(`[compareCustomImage] Extracting features for uploaded image...`);
+        const uploadedFeatures = await groqVision.analyzeImage(imageBase64, extractionPrompt);
+
+        // 3. Score the similarity
+        const scoringPrompt =
+            'You are an item similarity scorer. Given two item feature descriptions as JSON, ' +
+            'return ONLY a JSON object: { "similarity_score": number (0.0–1.0), ' +
+            '"matching_attributes": string[], "mismatched_attributes": string[] }. ' +
+            'No explanation, raw JSON only.';
+
+        const prompt =
+            `Item A (Original) features: ${JSON.stringify(sourceItem.features)}\n` +
+            `Item B (Uploaded) features: ${JSON.stringify(uploadedFeatures)}`;
+
+        console.log(`[compareCustomImage] Comparing features...`);
+        const result = await groqVision.analyzeText(scoringPrompt, prompt);
+        let score = result.similarity_score || 0;
+
+        // Apply metadata boosts based on category match, if available
+        const srcCat = (sourceItem.features.category || '').toLowerCase();
+        const candCat = (uploadedFeatures.category || '').toLowerCase();
+        if (srcCat && candCat) {
+            if (srcCat === candCat) {
+                score += 0.15;
+            } else {
+                score -= 0.20;
+            }
+        }
+
+        // Clamp 0–1
+        score = Math.max(0, Math.min(1, score));
+
+        return {
+            itemId: itemId,
+            title: sourceItem.title,
+            score: parseFloat(score.toFixed(3)),
+            matchingAttributes: result.matching_attributes || [],
+            mismatchedAttributes: result.mismatched_attributes || [],
+            uploadedFeatures: uploadedFeatures
+        };
+    }
 }
 
 module.exports = new MatchingService();

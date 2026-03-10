@@ -6,33 +6,12 @@ const fetch = require('node-fetch');
 class CctvService {
 
     /**
-     * Download an image URL and return it as a base64 data-URI string.
-     */
-    async _getBase64Image(imageUrl) {
-        const url = (imageUrl || '').trim();
-        if (url.startsWith('data:image')) {
-            return url;
-        }
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            throw new Error(`Invalid image URL (must be http/https or data URI): "${url.substring(0, 80)}"`);
-        }
-        const response = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AdvancedTrackingSystem/1.0)' }
-        });
-        if (!response.ok) throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
-        const buffer = await response.buffer();
-        const contentType = response.headers.get('content-type') || 'image/jpeg';
-        return `data:${contentType};base64,${buffer.toString('base64')}`;
-    }
-
-    /**
-     * Verify a claim using CCTV logs + optional visual comparison + Groq AI verdict.
+     * Verify a claim using CCTV logs + Groq AI verdict.
      *
      * Steps:
      *  1. Query cctvLogs for matching zone & ±2-hour window
-     *  2. If claimantImageUrl exists, run Epic 3 compareAndSuggest
-     *  3. Combine everything into a Groq prompt for final verdict
-     *  4. Save result & return
+     *  2. Combine everything into a Groq prompt for final verdict
+     *  3. Save result & return
      *
      * @param {string} claimId
      * @returns {Object} { match, confidence, reasoning, verdict }
@@ -87,33 +66,7 @@ class CctvService {
             formattedLogEntries = entries.join('\n');
         }
 
-        // ── 4. Visual comparison (if photo exists) ───────────────────────
-        let visualMatchResult = 'No image provided';
-
-        if (claim.claimantImageUrl && claim.itemId) {
-            try {
-                // Find the item in items collection
-                const itemDoc = await db.collection('items').doc(claim.itemId).get();
-                if (itemDoc.exists) {
-                    // Passed collection is irrelevant now to compareAndSuggest internally, but frontend may expect 'lostItems' still
-                    const itemCollection = itemDoc.data().type === 'lost' ? 'lostItems' : 'foundItems';
-                    const suggestions = await matchingService.compareAndSuggest(claim.itemId, itemCollection);
-                    if (suggestions && suggestions.length > 0) {
-                        const top = suggestions[0];
-                        visualMatchResult = `Visual comparison score: ${top.score}, matched attributes: ${top.matchingAttributes.join(', ')}`;
-                    } else {
-                        visualMatchResult = 'Visual comparison found no strong matches.';
-                    }
-                } else {
-                    visualMatchResult = 'Referenced item not found in items collection.';
-                }
-            } catch (err) {
-                console.error('Visual comparison failed:', err.message);
-                visualMatchResult = `Visual comparison error: ${err.message}`;
-            }
-        }
-
-        // ── 5. Build Groq prompt ─────────────────────────────────────────
+        // ── 4. Build Groq prompt ─────────────────────────────────────────
         const userPrompt =
             `A user is claiming they lost an item. Here is the context:\n\n` +
             `User description: ${claim.description || 'No description provided'}\n` +
@@ -121,7 +74,6 @@ class CctvService {
             `Time: ${timeOfLoss || 'Not specified'}\n` +
             `Date: ${dateOfLoss}\n\n` +
             `CCTV log entries from that location and time:\n${formattedLogEntries}\n\n` +
-            `Visual match result (if available):\n${visualMatchResult}\n\n` +
             `Based on all of this, how likely is it that this claim is legitimate?\n` +
             `Return ONLY JSON:\n` +
             `{\n` +
@@ -132,23 +84,15 @@ class CctvService {
             `}`;
 
         const systemPrompt =
-            'You are a claim verification AI. Analyze the provided context (CCTV logs, visual match, ' +
+            'You are a claim verification AI. Analyze the provided context (CCTV logs, ' +
             'user description) and determine how likely a lost-item claim is legitimate. ' +
             'Return ONLY valid JSON with the fields: match (boolean), confidence (0.0-1.0), ' +
             'reasoning (string), verdict (likely_valid | possibly_valid | likely_invalid).';
 
-        let verdict;
+        // Text-only prompt
+        const verdict = await groqVision.analyzeText(systemPrompt, userPrompt);
 
-        if (claim.claimantImageUrl) {
-            // Use image + text prompt
-            const base64Image = await this._getBase64Image(claim.claimantImageUrl);
-            verdict = await groqVision.analyzeImage(base64Image, systemPrompt, userPrompt);
-        } else {
-            // Text-only prompt
-            verdict = await groqVision.analyzeText(systemPrompt, userPrompt);
-        }
-
-        // ── 6. Save and return ───────────────────────────────────────────
+        // ── 5. Save and return ───────────────────────────────────────────
         const resultDoc = {
             ...verdict,
             claimId,
@@ -159,6 +103,7 @@ class CctvService {
 
         return verdict;
     }
+
 
     /**
      * Parse a date string + time string like "2024-01-15" + "10:30am" into a Date.

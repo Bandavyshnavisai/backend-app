@@ -46,4 +46,20 @@ router.post('/ai/compare-and-suggest/:itemId/:collection', verifyFirebaseToken, 
     }
 });
 
+// POST /api/ai/compare-custom-image/:itemId
+router.post('/ai/compare-custom-image/:itemId', verifyFirebaseToken, async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { image } = req.body;
+
+        if (!itemId) return res.status(400).json({ success: false, error: 'itemId is required' });
+        if (!image) return res.status(400).json({ success: false, error: 'image base64 string is required in body' });
+
+        const result = await matchingService.compareCustomImage(itemId, image);
+        return res.json({ success: true, data: result });
+    } catch (error) {
+        sendError(res, error);
+    }
+});
+
 module.exports = router;

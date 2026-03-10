@@ -15,7 +15,7 @@ const error = (res, message = 'Internal Server Error', statusCode = 500, error =
     success: false,
     message,
   };
-  
+
   if (error && process.env.NODE_ENV === 'development') {
     response.error = error;
   }

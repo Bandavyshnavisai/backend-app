@@ -65,12 +65,19 @@ class ItemsService {
             const extension = type.split('/')[1];
 
             const fileName = `${itemId}_${Date.now()}.${extension}`;
-            const filePath = path.join(__dirname, '../../public/uploads', fileName);
+            const uploadDir = path.join(__dirname, '../../public/uploads');
+            const filePath = path.join(uploadDir, fileName);
+
+            // Ensure directory exists
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
 
             // Write the buffer to the file system
             fs.writeFileSync(filePath, buffer);
 
             // Construct the local static URL using the server's HTTP endpoint
+            // If running on an emulator, use 10.0.2.2 instead of localhost for the flutter app to access it
             const publicUrl = `http://localhost:5000/public/uploads/${fileName}`;
 
             await this.collection.doc(itemId).update({
@@ -121,6 +128,10 @@ class ItemsService {
             // Simple filtering
             if (query.type) {
                 ref = ref.where('type', '==', query.type);
+            }
+
+            if (query.saleStatus) {
+                ref = ref.where('saleStatus', '==', query.saleStatus);
             }
 
             // Should probably only show 'approved' or 'pending'?
