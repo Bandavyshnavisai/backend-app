@@ -1,70 +1,80 @@
 const admin = require("firebase-admin");
 const dotenv = require("dotenv");
-const path = require('path');
+const path = require("path");
+const fs = require("fs");
 
 dotenv.config();
 
-/**
- * Validates and initializes Firebase Admin SDK
- * Supports both individual environment variables (feature/unclaimed-sale)
- * and Service Account File / ADC (main/HEAD).
- */
 if (!admin.apps.length) {
   const commonConfig = {
     projectId: process.env.FIREBASE_PROJECT_ID,
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || `${process.env.FIREBASE_PROJECT_ID}.appspot.com`
+    storageBucket:
+      process.env.FIREBASE_STORAGE_BUCKET ||
+      `${process.env.FIREBASE_PROJECT_ID}.appspot.com`,
   };
 
-  if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
-    // Strategy 1: Explicit Env Vars
-    console.log("Initializing Firebase with Environment Variables...");
-    admin.initializeApp({
-      ...commonConfig,
-      credential: admin.credential.cert({
+  let serviceAccount = null;
+
+  try {
+    /**
+     * Strategy 1 — Render / Production (ENV JSON)
+     */
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      console.log("Initializing Firebase using FIREBASE_SERVICE_ACCOUNT env...");
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    }
+
+    /**
+     * Strategy 2 — Individual environment variables
+     */
+    else if (
+      process.env.FIREBASE_PRIVATE_KEY &&
+      process.env.FIREBASE_CLIENT_EMAIL &&
+      process.env.FIREBASE_PROJECT_ID
+    ) {
+      console.log("Initializing Firebase using individual env variables...");
+      serviceAccount = {
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      }),
-    });
-  } else {
-    // Strategy 2: Local Service Account File (Prioritized to avoid system-wide env var conflicts)
-    try {
-      const localServiceAccountPath = path.resolve(process.cwd(), 'serviceAccountKey.json');
-      const serviceAccount = require(localServiceAccountPath);
-      console.log(`Initializing Firebase with local credentials from: ${localServiceAccountPath}`);
-      admin.initializeApp({
-        ...commonConfig,
-        credential: admin.credential.cert(serviceAccount)
-      });
-    } catch (localErr) {
-      // Fallback to System env if local file doesn't exist
-      if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-        const serviceAccountPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-        const absolutePath = path.isAbsolute(serviceAccountPath)
-          ? serviceAccountPath
-          : path.resolve(process.cwd(), serviceAccountPath);
-        console.log(`Initializing Firebase with fallback credentials from: ${absolutePath}`);
-        try {
-          const serviceAccount = require(absolutePath);
-          admin.initializeApp({
-            ...commonConfig,
-            credential: admin.credential.cert(serviceAccount)
-          });
-        } catch (error) {
-          console.error(`Failed to load service account: ${error.message}`);
-          throw error;
-        }
-      } else {
-        console.log('Initializing Firebase with default application credentials...');
-        admin.initializeApp(commonConfig);
+      };
+    }
+
+    /**
+     * Strategy 3 — Local serviceAccountKey.json (for local development)
+     */
+    else {
+      const localPath = path.resolve(process.cwd(), "serviceAccountKey.json");
+
+      if (fs.existsSync(localPath)) {
+        console.log(`Initializing Firebase using local file: ${localPath}`);
+        serviceAccount = require(localPath);
       }
     }
-  }
 
-  console.log("✅ Firebase Admin Initialized");
+    /**
+     * Initialize Firebase
+     */
+    if (serviceAccount) {
+      admin.initializeApp({
+        ...commonConfig,
+        credential: admin.credential.cert(serviceAccount),
+      });
+    } else {
+      console.log("Initializing Firebase using default credentials...");
+      admin.initializeApp(commonConfig);
+    }
+
+    console.log("✅ Firebase Admin Initialized");
+  } catch (error) {
+    console.error("❌ Firebase Initialization Error:", error);
+    throw error;
+  }
 }
 
-// 🔁 Export commonly used services
+/**
+ * Export services
+ */
 const db = admin.firestore();
 const auth = admin.auth();
 
