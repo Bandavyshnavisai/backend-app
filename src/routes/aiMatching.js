@@ -14,13 +14,15 @@ const sendError = (res, error) => {
     return res.status(500).json({ success: false, error: error.message || 'Internal Server Error' });
 };
 
-// POST /api/ai/extract-features/:itemId/:collection
-router.post('/ai/extract-features/:itemId/:collection', verifyFirebaseToken, async (req, res) => {
+// POST /api/ai/extract-features/:itemId (supports ?collection=...)
+router.post(['/ai/extract-features/:itemId/:collection', '/ai/extract-features/:itemId'], verifyFirebaseToken, async (req, res) => {
     try {
-        const { itemId, collection } = req.params;
+        const { itemId } = req.params;
+        const collection = req.params.collection || req.query.collection;
+
         if (!itemId) return res.status(400).json({ success: false, error: 'itemId is required' });
-        if (!VALID_COLLECTIONS.includes(collection)) {
-            return res.status(400).json({ success: false, error: 'collection must be "lostItems" or "foundItems"' });
+        if (!collection || !VALID_COLLECTIONS.includes(collection)) {
+            return res.status(400).json({ success: false, error: 'collection must be "lostItems" or "foundItems" (path or query)' });
         }
 
         const features = await matchingService.extractFeatures(itemId, collection);
@@ -30,13 +32,16 @@ router.post('/ai/extract-features/:itemId/:collection', verifyFirebaseToken, asy
     }
 });
 
-// POST /api/ai/compare-and-suggest/:itemId/:collection
-router.post('/ai/compare-and-suggest/:itemId/:collection', verifyFirebaseToken, async (req, res) => {
+// POST /api/ai/compare-and-suggest/:itemId
+// POST /api/ai/compare-and-suggest-full/:itemId
+router.post(['/ai/compare-and-suggest/:itemId/:collection', '/ai/compare-and-suggest/:itemId', '/ai/compare-and-suggest-full/:itemId'], verifyFirebaseToken, async (req, res) => {
     try {
-        const { itemId, collection } = req.params;
+        const { itemId } = req.params;
+        const collection = req.params.collection || req.query.collection;
+
         if (!itemId) return res.status(400).json({ success: false, error: 'itemId is required' });
-        if (!VALID_COLLECTIONS.includes(collection)) {
-            return res.status(400).json({ success: false, error: 'collection must be "lostItems" or "foundItems"' });
+        if (!collection || !VALID_COLLECTIONS.includes(collection)) {
+            return res.status(400).json({ success: false, error: 'collection must be "lostItems" or "foundItems" (path or query)' });
         }
 
         const suggestions = await matchingService.compareAndSuggest(itemId, collection);
